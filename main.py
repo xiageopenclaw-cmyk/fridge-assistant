@@ -1,7 +1,10 @@
+spawn /usr/bin/ssh -o StrictHostKeyChecking=no Jarry@192.168.3.230 cat /home/Jarry/fridge-assistant/main.py
+Jarry@192.168.3.230's password: 
 """
 Fridge Assistant - FastAPI 后端
 """
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import re
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import httpx
@@ -30,32 +33,31 @@ MINIMAX_BASE_URL = "https://api.minimaxi.com/anthropic"
 class FoodItem(BaseModel):
     name: str
     confidence: float = 1.0
-    expiry_days: int | None = None  # 估算保质期（天）
+    expiry_days: int | None = None
 
 class RecognizeResponse(BaseModel):
-    source: str  # "baidu" | "minimax"
+    source: str
     foods: list[FoodItem]
     raw: dict | None = None
-
 
 # ─── 路由 ───
 @app.get("/")
 async def root():
     return {"status": "ok", "service": "fridge-assistant", "version": "0.1.0"}
 
-
 @app.get("/health")
 async def health():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-
 @app.post("/recognize", response_model=RecognizeResponse)
-async def recognize(image: UploadFile = File(...), source: str = "minimax"):
+async def recognize(
+    image: UploadFile = File(...),
+    source: str = Form("minimax")
+):
     """
     食材识别 API
-
     - image: 图片文件
-    - source: "baidu" | "minimax"（用哪个模型识别）
+    - source: "baidu" | "minimax"
     """
     if source not in ("baidu", "minimax"):
         raise HTTPException(400, f"Unknown source: {source}")
@@ -68,9 +70,8 @@ async def recognize(image: UploadFile = File(...), source: str = "minimax"):
     else:
         return await _recognize_baidu(b64_image)
 
-
 async def _recognize_minimax(b64_image: str, raw_bytes: bytes) -> RecognizeResponse:
-    """调用 MiniMax 多模态模型"""
+    """调用 MiniMax VLM 模型（/v1/coding_plan/vlm 专用视觉接口）"""
     if not MINIMAX_API_KEY:
         raise HTTPException(500, "MINIMAX_API_KEY not configured")
 
@@ -82,86 +83,76 @@ async def _recognize_minimax(b64_image: str, raw_bytes: bytes) -> RecognizeRespo
         '{"foods": [{"name": "食物名", "confidence": 0.95, "expiry_days": 3}]}'
     )
 
+    data_url = f"data:image/jpeg;base64,{b64_image}"
+
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
-            f"{MINIMAX_BASE_URL}/v1/messages",
+            "https://api.minimaxi.com/v1/coding_plan/vlm",
             headers={
                 "Authorization": f"Bearer {MINIMAX_API_KEY}",
                 "Content-Type": "application/json",
-                "anthropic-version": "2023-06-01",
+                "MM-API-Source": "OpenClaw",
             },
             json={
-                "model": "MiniMax-V01",
-                "max_tokens": 1024,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "image/jpeg",
-                                    "data": b64_image,
-                                },
-                            },
-                        ],
-                    }
-                ],
+                "prompt": prompt,
+                "image_url": data_url,
             },
         )
         if resp.status_code != 200:
-            raise HTTPException(502, f"MiniMax API error: {resp.text}")
+            raise HTTPException(502, f"MiniMax VLM API error: {resp.status_code} {resp.text}")
 
         data = resp.json()
-        text = data["content"][0]["text"]
-        # 解析 JSON 响应
-        import json
+        text = data.get("content", "")
+        import json as json_mod
+        # Strip markdown code blocks if present (MiniMax may return ```json...```)
+        text_clean = re.sub(r"^```json\s*", "", text.strip()).strip()
+        text_clean = re.sub(r"\s*```$", "", text_clean).strip()
         try:
-            result = json.loads(text)
+            result = json_mod.loads(text_clean)
         except Exception:
             result = {"foods": [{"name": text.strip(), "confidence": 1.0, "expiry_days": None}]}
 
         return RecognizeResponse(source="minimax", foods=result.get("foods", []), raw=data)
 
+async def _get_baidu_token() -> str:
+    """获取百度 API access_token"""
+    BAIDU_API_KEY = os.environ.get("BAIDU_API_KEY", "")
+    BAIDU_SECRET_KEY = os.environ.get("BAIDU_SECRET_KEY", "")
+    if not BAIDU_API_KEY or not BAIDU_SECRET_KEY:
+        raise HTTPException(500, "BAIDU_API_KEY or BAIDU_SECRET_KEY not configured")
+    token_url = (f"https://aip.baidubce.com/oauth/2.0/token"
+                 f"?grant_type=client_credentials&client_id={BAIDU_API_KEY}&client_secret={BAIDU_SECRET_KEY}")
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(token_url)
+        data = resp.json()
+        return data.get("access_token", "")
+
 
 async def _recognize_baidu(b64_image: str) -> RecognizeResponse:
-    """调用百度食材识别 API"""
+    """调用百度果蔬食材识别 API"""
+    BAIDU_API_KEY = os.environ.get("BAIDU_API_KEY", "")
+    BAIDU_SECRET_KEY = os.environ.get("BAIDU_SECRET_KEY", "")
     if not BAIDU_API_KEY or not BAIDU_SECRET_KEY:
         raise HTTPException(500, "BAIDU_API_KEY or BAIDU_SECRET_KEY not configured")
 
-    # 获取 access_token
-    token_resp = httpx.get(
-        "https://aip.baidubce.com/oauth/2.0/token",
-        params={
-            "grant_type": "client_credentials",
-            "client_id": BAIDU_API_KEY,
-            "client_secret": BAIDU_SECRET_KEY,
-        },
-        timeout=30.0,
-    )
-    token_data = token_resp.json()
-    access_token = token_data.get("access_token")
-    if not access_token:
-        raise HTTPException(502, f"Baidu token error: {token_data}")
+    token = await _get_baidu_token()
+    api_url = f"https://aip.baidubce.com/rest/2.0/image-classify/v1/ingredient?access_token={token}"
 
-    # 调用食材识别
-    dish_resp = httpx.post(
-        f"https://aip.baidubce.com/rpc/2.0/ai_custom/v1/dish_recognize?access_token={access_token}",
-        json={"image": b64_image},
-        timeout=30.0,
-    )
-    if dish_resp.status_code != 200:
-        raise HTTPException(502, f"Baidu API error: {dish_resp.text}")
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(api_url, data={"image": b64_image})
+        if resp.status_code != 200:
+            raise HTTPException(502, f"Baidu API error: {resp.status_code} {resp.text}")
 
-    result = dish_resp.json()
-    foods = [
-        FoodItem(
-            name=item.get("name", "未知"),
-            confidence=item.get("probability", 1.0),
-            expiry_days=None,
-        )
-        for item in result.get("result", [])
-    ]
-    return RecognizeResponse(source="baidu", foods=foods, raw=result)
+        data = resp.json()
+        result = data.get("result", [])
+        foods = []
+        for item in result:
+            name = item.get("name", "")
+            confidence = float(item.get("score", 1.0))
+            if name:
+                foods.append({"name": name, "confidence": confidence, "expiry_days": None})
+
+        if not foods:
+            raise HTTPException(400, "未识别到食物")
+
+        return RecognizeResponse(source="baidu", foods=foods, raw=data)
