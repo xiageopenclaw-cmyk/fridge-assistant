@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>冰箱助手</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#fafaf6;color:#2d2d2d;min-height:100vh}
+.header{background:linear-gradient(180deg,#CDE4B9,#fafaf6 100%);padding:48px 20px 24px;text-align:center}
+.header h1{font-size:28px;font-weight:700;color:#3d5a27}
+.header p{font-size:14px;color:#7a9e5a;margin-top:4px}
+
+/* Tabs */
+.tabs{display:flex;gap:0;padding:0 16px;margin-top:-8px}
+.tab{flex:1;text-align:center;padding:12px 4px;font-size:13px;color:#999;border-bottom:2px solid transparent;cursor:pointer;transition:all .2s;user-select:none}
+.tab.active{color:#3d5a27;border-bottom-color:#6a9e3f;font-weight:600}
+
+/* FAB 今晚吃啥 */
+.fab-area{display:flex;justify-content:center;margin:-28px 0 20px;position:relative;z-index:2}
+.fab-btn{width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,#bfe1b1,#8cb87a);border:none;box-shadow:0 4px 16px rgba(108,158,63,.3);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:600;transition:transform .2s}
+.fab-btn:active{transform:scale(.95)}
+.fab-btn .emoji{font-size:26px;line-height:1}
+
+/* Content */
+.page{display:none;padding:0 16px 100px;animation:fadeIn .3s}
+.page.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* Cards */
+.section-title{font-size:15px;font-weight:700;color:#555;margin:16px 0 10px;display:flex;align-items:center;gap:6px}
+.card{background:#fff;border-radius:14px;padding:14px 16px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.06);display:flex;align-items:center;gap:12px;transition:transform .15s}
+.card:active{transform:scale(.98)}
+
+.card .icon{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0}
+.card .info{flex:1;min-width:0}
+.card .info .name{font-size:15px;font-weight:600;line-height:1.3}
+.card .info .meta{font-size:12px;color:#999;margin-top:2px}
+.card .badge{font-size:12px;font-weight:600;padding:4px 10px;border-radius:20px;white-space:nowrap;flex-shrink:0}
+.badge-red{background:#ffeaea;color:#d32f2f}
+.badge-amber{background:#fff3e0;color:#e65100}
+.badge-green{background:#e8f5e9;color:#2e7d32}
+
+/* Recipe cards */
+.recipe-card{background:#fff;border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.06)}
+.recipe-card .top{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.recipe-card .top .r-icon{font-size:28px}
+.recipe-card .top .r-name{font-size:16px;font-weight:700;flex:1}
+.recipe-card .top .r-time{font-size:12px;color:#999}
+.recipe-card .tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.recipe-card .tag{font-size:11px;background:#f0f4e8;color:#5a7d3a;padding:3px 10px;border-radius:12px}
+.recipe-card .steps{font-size:13px;color:#666;line-height:1.6}
+.recipe-card .nutrition{display:flex;gap:16px;margin-top:8px;padding-top:8px;border-top:1px solid #f0f0f0}
+.recipe-card .nutrition span{font-size:11px;color:#999}
+
+/* Status */
+.alert-section{margin-bottom:20px}
+.alert-section h3{font-size:14px;font-weight:700;color:#d32f2f;margin-bottom:8px}
+.alert-section h3.amber{color:#e65100}
+.alert-section h3.green{color:#2e7d32}
+
+/* Chat */
+.chat-area{background:#fff;border-radius:14px;padding:12px;box-shadow:0 1px 3px rgba(0,0,0,.06);min-height:200px;max-height:400px;overflow-y:auto;margin-bottom:12px}
+.chat-msg{margin-bottom:10px;line-height:1.5;font-size:14px}
+.chat-msg.user{color:#999;text-align:right}
+.chat-msg.assistant{color:#2d2d2d}
+.chat-input-row{display:flex;gap:8px}
+.chat-input-row input{flex:1;border:1px solid #e0e0e0;border-radius:24px;padding:12px 16px;font-size:14px;outline:none;background:#f9f9f6}
+.chat-input-row button{width:44px;height:44px;border-radius:50%;background:#6a9e3f;border:none;color:#fff;font-size:18px;cursor:pointer;flex-shrink:0}
+
+/* Loading */
+.loading{text-align:center;padding:40px;color:#ccc;font-size:14px}
+.spinner{display:inline-block;width:24px;height:24px;border:2px solid #e0e0e0;border-top-color:#6a9e3f;border-radius:50%;animation:spin .8s infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Nav */
+.nav{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #eee;display:flex;padding:8px 0 env(safe-area-inset-bottom,8px);z-index:10}
+.nav-item{flex:1;text-align:center;font-size:10px;color:#bbb;cursor:pointer;user-select:none;padding:4px 0;transition:color .2s}
+.nav-item.active{color:#3d5a27;font-weight:600}
+.nav-item .nav-icon{font-size:22px;display:block;margin-bottom:2px}
+
+.error{background:#fff0f0;color:#d32f2f;padding:12px;border-radius:10px;font-size:13px;margin:10px 0}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🧊 冰箱助手</h1>
+  <p id="status-text">连接中…</p>
+</div>
+
+<div class="fab-area">
+  <button class="fab-btn" onclick="askDinner()">
+    <span class="emoji">🍳</span>
+    <span>吃啥</span>
+  </button>
+</div>
+
+<!-- Pages -->
+<div class="page active" id="page-home">
+  <div class="section-title">⚠️ 临期提醒</div>
+  <div id="urgent-list"><div class="loading"><span class="spinner"></span></div></div>
+  <div class="section-title" style="margin-top:20px">🥬 全部库存</div>
+  <div id="all-list"><div class="loading"><span class="spinner"></span></div></div>
+</div>
+
+<div class="page" id="page-recipes">
+  <div class="section-title">🍽️ 推荐菜谱</div>
+  <div id="recipe-list"><div class="loading"><span class="spinner"></span></div></div>
+</div>
+
+<div class="page" id="page-chat">
+  <div class="section-title">🤖 冰箱小管家</div>
+  <div class="chat-area" id="chat-messages">
+    <div class="chat-msg assistant">你好！我是冰箱小管家～需要帮你看看冰箱里有什么、推荐今晚吃什么吗？😊</div>
+  </div>
+  <div class="chat-input-row">
+    <input id="chat-input" type="text" placeholder="问点什么…" onkeydown="if(event.key==='Enter')sendMsg()">
+    <button onclick="sendMsg()">→</button>
+  </div>
+</div>
+
+<div class="nav">
+  <div class="nav-item active" onclick="switchTab('home', this)">
+    <span class="nav-icon">🏠</span>首页
+  </div>
+  <div class="nav-item" onclick="switchTab('recipes', this)">
+    <span class="nav-icon">📖</span>菜谱
+  </div>
+  <div class="nav-item" onclick="switchTab('chat', this)">
+    <span class="nav-icon">💬</span>小管家
+  </div>
+</div>
+
+<script>
+const API = 'http://106.53.188.184:8000';
+let inventoryData = [];
+
+async function init() {
+  try {
+    const res = await fetch(API + '/');
+    const data = await res.json();
+    document.getElementById('status-text').textContent = '✅ ' + data.service + ' · 云端运行中';
+  } catch(e) {
+    document.getElementById('status-text').textContent = '❌ 连接失败';
+  }
+  loadHome();
+}
+
+function switchTab(name, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  el.classList.add('active');
+  if (name === 'home') loadHome();
+  if (name === 'recipes') loadRecipes();
+}
+
+async function loadHome() {
+  try {
+    const data = await fetch(API + '/api/inventory').then(r => r.json());
+    inventoryData = data;
+    renderInventory(data);
+  } catch(e) {
+    document.getElementById('urgent-list').innerHTML = '<div class="error">加载失败，请检查网络</div>';
+  }
+}
+
+function renderInventory(items) {
+  const urgent = items.filter(i => ['red','amber'].includes(i.alert));
+  const green = items.filter(i => i.alert === 'green');
+
+  let uHTML = '';
+  if (urgent.length === 0) {
+    uHTML = '<div style="color:#999;font-size:13px;padding:20px;text-align:center">🎉 没有临期食材！</div>';
+  } else {
+    urgent.forEach(i => {
+      const cls = i.alert === 'red' ? 'badge-red' : 'badge-amber';
+      const label = i.alert === 'red' ? '⚡今天到期' : i.remaining_days + '天';
+      const bg = i.alert === 'red' ? '#fff0f0' : '#fff8f0';
+      uHTML += `<div class="card" style="background:${bg}">
+        <div class="icon" style="background:${i.alert==='red'?'#ffe0e0':'#fff0d0'}">${emojiFor(i.category)}</div>
+        <div class="info"><div class="name">${i.name}</div><div class="meta">${i.quantity}${i.unit} · ${i.category}</div></div>
+        <div class="badge ${cls}">${label}</div>
+      </div>`;
+    });
+  }
+  document.getElementById('urgent-list').innerHTML = uHTML;
+
+  let aHTML = '';
+  green.forEach(i => {
+    aHTML += `<div class="card">
+      <div class="icon" style="background:#e8f5e9">${emojiFor(i.category)}</div>
+      <div class="info"><div class="name">${i.name}</div><div class="meta">${i.quantity}${i.unit} · ${i.category}</div></div>
+      <div class="badge badge-green">${i.remaining_days}天</div>
+    </div>`;
+  });
+  document.getElementById('all-list').innerHTML = aHTML;
+}
+
+async function loadRecipes() {
+  try {
+    const data = await fetch(API + '/api/recipes').then(r => r.json());
+    let html = '';
+    data.forEach(r => {
+      html += `<div class="recipe-card">
+        <div class="top">
+          <span class="r-icon">${r.emoji||'🍽️'}</span>
+          <span class="r-name">${r.name}</span>
+          <span class="r-time">⏱ ${r.time}</span>
+        </div>
+        <div class="tags">${(r.tags||[]).map(t=>'<span class="tag">'+t+'</span>').join('')}</div>
+        <div class="steps">${(r.steps||[]).map((s,i)=>(i+1)+'. '+s).join('<br>')}</div>
+        ${r.nutrition ? `<div class="nutrition">
+          <span>🔥 ${r.nutrition.kcal}kcal</span>
+          <span>💪 ${r.nutrition.protein}g 蛋白</span>
+          <span>🍚 ${r.nutrition.carbs}g 碳水</span>
+          <span>🧈 ${r.nutrition.fat}g 脂肪</span>
+        </div>` : ''}
+      </div>`;
+    });
+    document.getElementById('recipe-list').innerHTML = html || '<div style="color:#999;text-align:center;padding:40px">暂无菜谱</div>';
+  } catch(e) {
+    document.getElementById('recipe-list').innerHTML = '<div class="error">加载失败</div>';
+  }
+}
+
+async function askDinner() {
+  appendChat('user', '今晚吃什么？');
+  appendChat('assistant', '<span class="spinner" style="width:16px;height:16px;border-width:2px"></span> 思考中…');
+  try {
+    const res = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: '今晚吃什么？根据冰箱现有食材推荐'})
+    });
+    const data = await res.json();
+    // replace loading msg
+    const msgs = document.getElementById('chat-messages');
+    msgs.lastChild.innerHTML = data.reply.replace(/\n/g, '<br>');
+  } catch(e) {
+    const msgs = document.getElementById('chat-messages');
+    msgs.lastChild.innerHTML = '❌ 网络错误，请重试';
+  }
+  switchTab('chat', document.querySelectorAll('.nav-item')[2]);
+}
+
+function appendChat(role, text) {
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  div.innerHTML = text;
+  const area = document.getElementById('chat-messages');
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+
+async function sendMsg() {
+  const input = document.getElementById('chat-input');
+  const msg = input.value.trim();
+  if (!msg) return;
+  input.value = '';
+  appendChat('user', msg);
+  appendChat('assistant', '<span class="spinner" style="width:16px;height:16px;border-width:2px"></span> 思考中…');
+  try {
+    const res = await fetch(API + '/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({message: msg})
+    });
+    const data = await res.json();
+    const msgs = document.getElementById('chat-messages');
+    msgs.lastChild.innerHTML = data.reply.replace(/\n/g, '<br>');
+  } catch(e) {
+    const msgs = document.getElementById('chat-messages');
+    msgs.lastChild.innerHTML = '❌ 网络错误，请重试';
+  }
+}
+
+function emojiFor(cat) {
+  const map = {'乳制品':'🥛','肉类':'🥩','蔬菜':'🥬','水果':'🍎','蛋类':'🥚','海鲜':'🦐','饮料':'🧃','零食':'🍪','熟食':'🍱','豆制品':'🧈','其他':'📦'};
+  return map[cat] || '📦';
+}
+
+init();
+</script>
+</body>
+</html>
